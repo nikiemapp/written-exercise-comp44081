@@ -1,3 +1,4 @@
+# Import necessary libraries for data manipulation, modeling, and visualization
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -11,15 +12,17 @@ import statsmodels.api as sm
 
 class RedemptionSalesImprovedModel:
     def __init__(self, X: pd.DataFrame, target_col: str):
-        self.X = X.sort_index()
+        # Initialize the model with input data and target column
+        self.X = X.sort_index()  # Ensure data is sorted by time
         self.target_col = target_col
-        self.results = {}
-        self.preds = {}
-        self.models = {}
-        self.feature_importances_ = {}
+        self.results = {}  # Store evaluation metrics
+        self.preds = {}  # Store predictions
+        self.models = {}  # Store trained models
+        self.feature_importances_ = {}  # Store feature importances
 
     @staticmethod
     def _metrics(y_true, y_pred):
+        # Compute evaluation metrics including MAPE with zero-value masking
         mask = y_true != 0
         mape = np.mean(np.abs((y_true[mask] - y_pred[mask]) / y_true[mask])) * 100
         return {
@@ -31,12 +34,14 @@ class RedemptionSalesImprovedModel:
         }
 
     def _log(self, model, split, y_true, y_pred, fitted=None):
+        # Log metrics, predictions, and optionally the fitted model
         self.results.setdefault(model, {})[split] = self._metrics(y_true, y_pred)
         self.preds.setdefault(model, {})[split] = y_pred
         if fitted is not None:
             self.models.setdefault(model, {})[split] = fitted
 
     def _base(self, y_train, y_test, split):
+        # Baseline model using seasonal decomposition (yearly seasonality)
         stl = sm.tsa.seasonal_decompose(y_train, period=365)
         seas = pd.Series(stl.seasonal, index=y_train.index).clip(lower=0)
         doy_means = seas.groupby(seas.index.dayofyear).mean()
@@ -44,6 +49,7 @@ class RedemptionSalesImprovedModel:
         self._log("Base", split, y_test, y_hat)
 
     def _rf(self, X_train, X_test, y_train, y_test, split):
+        # Train and evaluate a Random Forest model
         model = RandomForestRegressor(n_estimators=200, min_samples_split=20, random_state=42, n_jobs=-1)
         model.fit(X_train, y_train)
         y_hat = pd.Series(model.predict(X_test), index=y_test.index)
@@ -51,6 +57,7 @@ class RedemptionSalesImprovedModel:
         self.feature_importances_["RandomForest"] = model.feature_importances_
 
     def _lgbm(self, X_train, X_test, y_train, y_test, split):
+        # Train and evaluate a LightGBM model
         model = lgb.LGBMRegressor(n_estimators=600, learning_rate=0.05, subsample=0.6, max_depth=70,
                                   num_leaves=64, random_state=42)
         model.fit(X_train, y_train)
@@ -59,6 +66,7 @@ class RedemptionSalesImprovedModel:
         self.feature_importances_["LightGBM"] = model.feature_importances_
 
     def _xgb(self, X_train, X_test, y_train, y_test, split):
+        # Train and evaluate an XGBoost model
         model = xgb.XGBRegressor(n_estimators=600, learning_rate=0.05, max_depth=6, subsample=0.8,
                                  colsample_bytree=0.8, objective="reg:squarederror", random_state=42, n_jobs=-1)
         model.fit(X_train, y_train)
@@ -67,6 +75,7 @@ class RedemptionSalesImprovedModel:
         self.feature_importances_["XGBoost"] = model.feature_importances_
 
     def _ensemble(self, y_test, split):
+        # Combine predictions from all models using simple averaging
         rf = self.preds["RandomForest"][split]
         lg = self.preds["LightGBM"][split]
         xb = self.preds["XGBoost"][split]
@@ -74,6 +83,7 @@ class RedemptionSalesImprovedModel:
         self._log("Ensemble", split, y_test, ens)
 
     def run(self, n_splits=4, test_size=365):
+        # Run time-series cross-validation and train all models
         tscv = TimeSeriesSplit(n_splits=n_splits, test_size=test_size)
 
         for split, (train_idx, test_idx) in enumerate(tscv.split(self.X)):
@@ -88,6 +98,7 @@ class RedemptionSalesImprovedModel:
             self._xgb(feats_train, feats_test, y_train, y_test, split)
             self._ensemble(y_test, split)
 
+        # Aggregate average performance metrics across splits
         self.performance_results = (
             pd.DataFrame({m: pd.DataFrame(d).T.mean() for m, d in self.results.items()})
             .T.sort_values("MAPE")
@@ -96,9 +107,11 @@ class RedemptionSalesImprovedModel:
         return self
 
     def metrics(self):
+        # Return the aggregated performance metrics
         return self.performance_results
 
     def plot(self):
+        # Plot observed vs. predicted values for each model and split
         for model in ["Base", "RandomForest", "LightGBM", "XGBoost", "Ensemble"]:
             for split in self.preds.get(model, {}):
                 preds = self.preds[model][split]
@@ -109,6 +122,7 @@ class RedemptionSalesImprovedModel:
                 plt.legend(); plt.tight_layout(); plt.show()
 
     def importance(self):
+        # Plot top 10 feature importances for each model
         feature_names = self.X.drop(columns=[self.target_col]).columns
         fig, axes = plt.subplots(3, 1, figsize=(10, 12))
 

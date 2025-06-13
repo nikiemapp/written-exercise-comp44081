@@ -1,4 +1,4 @@
-# R version of the RedemptionSalesImprovedModel using functional programming
+# R version of the RedemptionSalesImprovedModel
 
 # Required libraries
 library(randomForest)
@@ -15,6 +15,8 @@ df$Timestamp <- as.Date(df$Timestamp)
 
 # ---- Core functions ----
 
+# Function to Calculate model performance metrics, takes the observed and 
+# predicted values as inputs
 calculate_metrics <- function(y_true, y_pred) {
   mask <- y_true != 0
   mape <- mean(abs((y_true[mask] - y_pred[mask]) / y_true[mask])) * 100
@@ -27,6 +29,8 @@ calculate_metrics <- function(y_true, y_pred) {
   )
 }
 
+# Function to run the model, takes the dataframe, target, number of splits,
+# and test size as inputs
 run_cv_model <- function(data, target_col, n_splits = 4, test_size = 365) {
   data <- data %>% arrange(Timestamp)
   n <- nrow(data)
@@ -72,7 +76,8 @@ run_cv_model <- function(data, target_col, n_splits = 4, test_size = 365) {
     # LightGBM
     dtrain_lgb <- lgb.Dataset(data = as.matrix(X_train), label = y_train)
     lgb_model <- lgb.train(list(objective = "regression", learning_rate = 0.05,
-                                max_depth = 70, num_leaves = 64, subsample = 0.6),
+                                max_depth = 70, num_leaves = 64, subsample = 0.6,
+                                verbose = -1),
                            dtrain_lgb, nrounds = 600)
     lgb_pred <- predict(lgb_model, as.matrix(X_test))
     results[["LightGBM"]][[i]] <- calculate_metrics(y_test, lgb_pred)
@@ -98,6 +103,7 @@ run_cv_model <- function(data, target_col, n_splits = 4, test_size = 365) {
     preds[["Ensemble"]][[i]] <- data.frame(index = row_idx, prediction = ensemble_pred)
   }
   
+  # Store the results in a list
   list(
     results = results,
     preds = preds,
@@ -108,7 +114,7 @@ run_cv_model <- function(data, target_col, n_splits = 4, test_size = 365) {
 }
 
 
-
+# Function to average the results from the 4 splits
 summarise_results <- function(results) {
   m1 <- data.frame(lapply(do.call(rbind, results$Base)%>%
                             as.data.frame(),function(col) unlist(col)))%>%
@@ -130,8 +136,8 @@ summarise_results <- function(results) {
   return(performance_results)
 }
 
+# Function to plot the ovbserved vs predictions
 plot_predictions <- function(data, preds, target_col) {
-  
   for (model_name in names(preds)) {
     for (i in 1:length(preds[[model_name]])) {
       pred_df <- preds[[model_name]][[i]]
@@ -144,8 +150,8 @@ plot_predictions <- function(data, preds, target_col) {
       dt_long <- tidyr::pivot_longer(dt, cols = c("observed", "predicted"), names_to = "type", values_to = "value")
       p <- ggplot(dt_long, aes(x = index, y = value, color = type)) +
         geom_point(size = 2.5) +
-        #geom_line(lwd = 1.5) +
         scale_color_manual(values = c("observed" = "grey", "predicted" = "red")) +
+        labs(x = "Year", y = "Redemption or Sales Count")
         ggtitle(paste(model_name, "- Split", i)) +
         theme_bw() +
         theme(legend.title = element_blank(),
